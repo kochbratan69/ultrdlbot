@@ -65,7 +65,7 @@ jobs:
           name: ${{ matrix.app }}-${{ matrix.os }}
           path: dist/*
           retention-days: 1
-release:
+  release:
     name: Create GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
