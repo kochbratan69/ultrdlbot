@@ -62,7 +62,7 @@ def check_and_update_all() -> bool:
     assets = {asset.get("name"): asset.get("browser_download_url") for asset in data.get("assets", [])}
 
     # Список всех бинарников, которые нужно обновить
-    apps = ["bot", "worker"]
+    apps = ["dlbot", "dlworker"]
     restart_self = False
     any_updated = False
 
