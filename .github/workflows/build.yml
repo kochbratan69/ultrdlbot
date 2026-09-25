@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build ${{ matrix.app }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -65,13 +65,13 @@ jobs:
           name: ${{ matrix.app }}-${{ matrix.os }}
           path: dist/*
           retention-days: 1
+
   release:
     name: Create GitHub Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      # Скачиваем ВСЕ артефакты из всех параллельных сборок в одну папку
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
