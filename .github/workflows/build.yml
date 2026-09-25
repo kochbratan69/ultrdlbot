@@ -34,23 +34,15 @@ jobs:
           pip install pyinstaller
         shell: bash
 
-      - name: Build with PyInstaller
+      - name: Build for Linux (Ubuntu) with PyInstaller
         run: |
-          OS_NAME=""
           EXT=""
+          OS_NAME="linux"
           
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            OS_NAME="windows"
-            EXT=".exe"
-          else
-            OS_NAME="linux"
-          fi
-          
-          pyinstaller --onefile --name "bot-${OS_NAME}${EXT}" bot.py
-          pyinstaller --onefile --name "worker-${OS_NAME}${EXT}" worker.py
+          pyinstaller --onefile --name "dlbot-${OS_NAME}${EXT}" bot.py
+          pyinstaller --onefile --name "dlworker-${OS_NAME}${EXT}" worker.py
         shell: bash
 
-      # 🔑 Генерация SHA256 хэшей для каждого бинарника
       - name: Generate SHA256 Checksums
         run: |
           cd dist
@@ -64,7 +56,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: python-binaries-${{ matrix.os }}
+          name: dlbot-binaries-${{ matrix.os }}
           path: dist/*
           retention-days: 30
 
