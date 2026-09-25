@@ -41,6 +41,7 @@ jobs:
           
           pyinstaller --onefile --name "dlbot-${OS_NAME}${EXT}" bot.py
           pyinstaller --onefile --name "dlworker-${OS_NAME}${EXT}" worker.py
+          pyinstaller --onefile --name "dlupdater-${OS_NAME}${EXT}" updater.py
         shell: bash
 
       - name: Generate SHA256 Checksums
