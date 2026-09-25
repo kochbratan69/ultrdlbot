@@ -18,6 +18,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
+        app: [bot, worker, updater]
 
     steps:
       - name: Checkout code
@@ -41,9 +42,11 @@ jobs:
           EXT=""
           OS_NAME="linux"
           
-          pyinstaller --onefile --name "dlbot-${OS_NAME}${EXT}" bot.py
-          pyinstaller --onefile --name "dlworker-${OS_NAME}${EXT}" --collect-all gallery_dl worker.py
-          pyinstaller --onefile --name "dlupdater-${OS_NAME}${EXT}" updater.py
+          if [ "${{ matrix.app }}" = "worker" ]; then
+            pyinstaller --onefile --name "dl${{ matrix.app }}-${OS_NAME}${EXT}" --collect-all gallery_dl ${{ matrix.app }}.py
+          else
+            pyinstaller --onefile --name "dl${{ matrix.app }}-${OS_NAME}${EXT}" ${{ matrix.app }}.py
+          fi
         shell: bash
 
       - name: Generate SHA256 Checksums
@@ -59,14 +62,25 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dlbot-binaries-${{ matrix.os }}
+          name: ${{ matrix.app }}-${{ matrix.os }}
           path: dist/*
-          retention-days: 30
+          retention-days: 1
+release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      # Скачиваем ВСЕ артефакты из всех параллельных сборок в одну папку
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
 
-      - name: Create GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
