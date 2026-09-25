@@ -8,6 +8,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -39,7 +42,7 @@ jobs:
           OS_NAME="linux"
           
           pyinstaller --onefile --name "dlbot-${OS_NAME}${EXT}" bot.py
-          pyinstaller --onefile --name "dlworker-${OS_NAME}${EXT}" worker.py
+          pyinstaller --onefile --name "dlworker-${OS_NAME}${EXT}" --collect-all gallery_dl worker.py
           pyinstaller --onefile --name "dlupdater-${OS_NAME}${EXT}" updater.py
         shell: bash
 
@@ -66,4 +69,4 @@ jobs:
         with:
           files: dist/*
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
