@@ -189,52 +189,79 @@ async def process_worker_download(message: types.Message, cache_id: str, mode: s
         })
         caption = get_msg("caption_downloaded", lang, bot_username=config.BOT_USERNAME)
 
-        if res.get("type") == "gallery":
-            files = res.get("files", [])
-            if len(files) == 1:
-                f_path = files[0]
-                if f_path.lower().endswith((".mp4", ".mov", ".mkv")):
-                    await message.bot.send_video(
-                        message.chat.id, FSInputFile(f_path), caption=caption, 
-                        reply_to_message_id=user_msg_id, reply_markup=share_kb
-                    )
+        try:
+            if res.get("type") == "gallery":
+                files = res.get("files", [])
+                if len(files) == 1:
+                    f_path = files[0]
+                    if f_path.lower().endswith((".mp4", ".mov", ".mkv")):
+                        await message.bot.send_video(
+                            message.chat.id, FSInputFile(f_path), caption=caption, 
+                            reply_to_message_id=user_msg_id, reply_markup=share_kb
+                        )
+                    else:
+                        await message.bot.send_photo(
+                            message.chat.id, FSInputFile(f_path), caption=caption, 
+                            reply_to_message_id=user_msg_id, reply_markup=share_kb
+                        )
                 else:
-                    await message.bot.send_photo(
-                        message.chat.id, FSInputFile(f_path), caption=caption, 
+                    chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
+                    for idx, chunk in enumerate(chunks):
+                        group = []
+                        for f_idx, f_path in enumerate(chunk):
+                            item_caption = caption if (idx == 0 and f_idx == 0) else None
+                            if f_path.lower().endswith((".mp4", ".mov", ".mkv")):
+                                group.append(InputMediaVideo(media=FSInputFile(f_path), caption=item_caption))
+                            else:
+                                group.append(InputMediaPhoto(media=FSInputFile(f_path), caption=item_caption))
+
+                        reply_id = user_msg_id if idx == 0 else None
+                        await message.bot.send_media_group(message.chat.id, media=group, reply_to_message_id=reply_id)
+                    
+                    await message.bot.send_message(
+                        message.chat.id, get_msg("msg_gallery_share_prompt", lang), 
                         reply_to_message_id=user_msg_id, reply_markup=share_kb
                     )
-            else:
-                chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
-                for idx, chunk in enumerate(chunks):
-                    group = []
-                    for f_idx, f_path in enumerate(chunk):
-                        item_caption = caption if (idx == 0 and f_idx == 0) else None
-                        if f_path.lower().endswith((".mp4", ".mov", ".mkv")):
-                            group.append(InputMediaVideo(media=FSInputFile(f_path), caption=item_caption))
-                        else:
-                            group.append(InputMediaPhoto(media=FSInputFile(f_path), caption=item_caption))
 
-                    reply_id = user_msg_id if idx == 0 else None
-                    await message.bot.send_media_group(message.chat.id, media=group, reply_to_message_id=reply_id)
-                
-                await message.bot.send_message(
-                    message.chat.id, get_msg("msg_gallery_share_prompt", lang), 
+            elif res.get("type") == "audio":
+                thumb = FSInputFile(res["thumb"]) if res.get("thumb") else None
+                await message.bot.send_audio(
+                    message.chat.id, audio=FSInputFile(res["file"]), caption=caption,
+                    title=res.get("title"), performer=res.get("artist"), thumbnail=thumb,
                     reply_to_message_id=user_msg_id, reply_markup=share_kb
                 )
 
-        elif res.get("type") == "audio":
-            thumb = FSInputFile(res["thumb"]) if res.get("thumb") else None
-            await message.bot.send_audio(
-                message.chat.id, audio=FSInputFile(res["file"]), caption=caption,
-                title=res.get("title"), performer=res.get("artist"), thumbnail=thumb,
-                reply_to_message_id=user_msg_id, reply_markup=share_kb
-            )
+            elif res.get("type") == "video":
+                await message.bot.send_video(
+                    message.chat.id, video=FSInputFile(res["file"]), caption=caption, 
+                    reply_to_message_id=user_msg_id, reply_markup=share_kb
+                )
 
-        elif res.get("type") == "video":
-            await message.bot.send_video(
-                message.chat.id, video=FSInputFile(res["file"]), caption=caption, 
-                reply_to_message_id=user_msg_id, reply_markup=share_kb
-            )
+        except Exception as send_err:
+            err_str = str(send_err)
+            # Если Telegram вернул ошибку о слишком большом файле (50 МБ+)
+            if any(k in err_str.lower() for k in ["too large", "entity", "413", "too big"]):
+                try:
+                    share_res = await call_worker("/createshare", {"cache_id": cache_id})
+                    shortcode = share_res.get("shortcode")
+                    access_key = share_res.get("key")
+                    share_url = f"{config.DOMAIN}/{shortcode}?k={access_key}#1hr"
+
+                    await message.bot.send_message(
+                        message.chat.id,
+                        f"**файлик оказался слишком большим для отправки в тагэ (>50 МБ)** :c\n\n"
+                        f"но ты всё равно можешь посмотреть или скачать его по ссылке:\n👉 {share_url}",
+                        reply_to_message_id=user_msg_id,
+                        parse_mode="Markdown"
+                    )
+                    if status_msg:
+                        await status_msg.delete()
+                    return
+                except Exception as share_e:
+                    print(f"ошибка при сгенерировании обходной ссылки: {share_e}")
+
+            # Если ошибка другая или сделать ссылку не удалось - пробрасываем выше
+            raise send_err
 
         if status_msg:
             await status_msg.delete()
