@@ -130,15 +130,15 @@ async def create_share_endpoint(req: ShareReq):
         raise HTTPException(status_code=404, detail="Файлы не найдены или устарели")
 
     # Берём все медиафайлы (исключая технические кэш-файлы)
-    files = [
+    all_files = [
         os.path.join(task_dir, f) for f in os.listdir(task_dir)
         if not f.endswith((".json", ".tmp")) and os.path.isfile(os.path.join(task_dir, f))
     ]
 
-    # Если присутствуют аудио/видео файлы, убираем картинки обложек
-    media_files = [f for f in files if f.lower().endswith((".mp4", ".mkv", ".mov", ".webm", ".mp3", ".m4a", ".flac", ".ogg", ".wav"))]
-    if media_files:
-        files = media_files
+    files = [
+        f for f in all_files 
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mkv", ".mov", ".webm", ".mp3", ".m4a", ".flac", ".ogg", ".wav"))
+    ]
 
     if not files:
         raise HTTPException(status_code=404, detail="Медиафайлы не найдены")
@@ -155,13 +155,13 @@ async def create_share_endpoint(req: ShareReq):
         shutil.copy2(source_file, target_path)
         download_name = os.path.basename(source_file)
     else:
-        # Для каруселей (TikTok, Instagram) упаковываем все фото/видео в ZIP
+        # Для пакетов (картинки + музыка или видео + музыка) упаковываем все в ZIP
         target_filename = f"{shortcode}.zip"
         target_path = os.path.join(config.SHARE_DIR, target_filename)
         with zipfile.ZipFile(target_path, 'w') as zipf:
             for f in files:
                 zipf.write(f, arcname=os.path.basename(f))
-        download_name = f"gallery_{req.cache_id}.zip"
+        download_name = f"post_{req.cache_id}.zip"
 
     database.add_share_link(
         shortcode=shortcode,
@@ -173,7 +173,7 @@ async def create_share_endpoint(req: ShareReq):
 
     return {"shortcode": shortcode, "key": access_key}
 
-# 🖼️ Роут для отображения отдельных файлов из ZIP-архива (для карусели фото)
+# 🖼️ Роут для отображения отдельных файлов из ZIP-архива (картинки и аудио)
 @app.get("/{shortcode}/raw/{inner_filename:path}")
 async def get_raw_zip_item(shortcode: str, inner_filename: str, k: str = Query(None)):
     if not k:
@@ -206,7 +206,7 @@ async def get_raw_zip_item(shortcode: str, inner_filename: str, k: str = Query(N
     else:
         raise HTTPException(status_code=400, detail="Файл не является архивом")
 
-# 👁️ Страница предпросмотра файла или всей карусели в браузере
+# 👁️ Страница предпросмотра: Картинки сверху, Музыка снизу
 @app.get("/{shortcode}", response_class=HTMLResponse)
 async def preview_shared_file(shortcode: str, k: str = Query(None)):
     if not k:
@@ -232,30 +232,57 @@ async def preview_shared_file(shortcode: str, k: str = Query(None)):
     player_html = ""
     download_btn_text = "Скачать файл 🚀"
 
-    # Если это ZIP-архив с каруселью картинок/видео
+    # Если это ZIP-архив с каруселью картинок/видео и/или музыкой
     if ext == ".zip" and os.path.exists(file_path):
         download_btn_text = "Скачать всё (ZIP) 🚀"
         try:
             with zipfile.ZipFile(file_path, 'r') as zipf:
                 inner_files = [f for f in zipf.namelist() if not f.startswith("__MACOSX")]
-                media_files = [
+                
+                visual_files = [
                     f for f in inner_files 
                     if os.path.splitext(f)[1].lower() in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mov", ".webm"]
                 ]
+                audio_files = [
+                    f for f in inner_files
+                    if os.path.splitext(f)[1].lower() in [".mp3", ".m4a", ".ogg", ".wav", ".flac"]
+                ]
 
-                if media_files:
-                    gallery_items = []
-                    for f in media_files:
+                visual_html = ""
+                audio_html = ""
+
+                # 1. Картинки и видео сверху
+                if visual_files:
+                    items = []
+                    for f in visual_files:
                         f_ext = os.path.splitext(f)[1].lower()
                         raw_url = f"/{clean_code}/raw/{f}?k={k}"
                         if f_ext in [".mp4", ".mov", ".webm"]:
-                            gallery_items.append(f'<video controls src="{raw_url}" style="width:100%; max-height:400px; border-radius:12px; margin-bottom:12px; object-fit:contain;"></video>')
+                            items.append(f'<video controls src="{raw_url}" style="width:100%; max-height:380px; border-radius:12px; margin-bottom:12px; object-fit:contain;"></video>')
                         else:
-                            gallery_items.append(f'<img src="{raw_url}" style="width:100%; max-height:450px; border-radius:12px; margin-bottom:12px; object-fit:contain;" />')
-                    
-                    player_html = f'<div class="gallery-container" style="max-height:500px; overflow-y:auto; margin:15px 0; padding-right:5px;">{"".join(gallery_items)}</div>'
+                            items.append(f'<img src="{raw_url}" style="width:100%; max-height:420px; border-radius:12px; margin-bottom:12px; object-fit:contain;" />')
+                    visual_html = f'<div class="gallery-container" style="max-height:420px; overflow-y:auto; margin:15px 0; padding-right:5px;">{"".join(items)}</div>'
+
+                # 2. Музыка поста снизу
+                if audio_files:
+                    audio_items = []
+                    for f in audio_files:
+                        raw_url = f"/{clean_code}/raw/{f}?k={k}"
+                        audio_items.append(f'''
+                        <div style="background:#0f172a; padding:12px 16px; border-radius:14px; margin-top:12px; text-align:left; border: 1px solid #334155;">
+                            <div style="font-size:12px; font-weight:600; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                                🎵 <span>Музыка из поста</span>
+                            </div>
+                            <audio controls src="{raw_url}" style="width:100%; height:38px;"></audio>
+                        </div>
+                        ''')
+                    audio_html = "".join(audio_items)
+
+                if visual_html or audio_html:
+                    player_html = visual_html + audio_html
                 else:
                     player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
+
         except Exception as e:
             player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
 
@@ -290,7 +317,7 @@ async def preview_shared_file(shortcode: str, k: str = Query(None)):
             }}
             .card {{
                 background: #1e293b;
-                padding: 28px;
+                padding: 24px;
                 border-radius: 20px;
                 box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
                 max-width: 480px;
@@ -314,6 +341,7 @@ async def preview_shared_file(shortcode: str, k: str = Query(None)):
                 display: block;
                 width: 100%;
                 padding: 14px 0;
+                margin-top: 18px;
                 background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
                 color: white;
                 text-decoration: none;

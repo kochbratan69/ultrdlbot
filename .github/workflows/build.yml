@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+    branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -12,8 +13,52 @@ permissions:
   contents: write
 
 jobs:
+  # 🔍 1. Проверяем, какие файлы изменились в коммите
+  changes:
+    name: Check Changed Files
+    runs-on: ubuntu-latest
+    outputs:
+      bot: ${{ steps.filter.outputs.bot }}
+      worker: ${{ steps.filter.outputs.worker }}
+      updater: ${{ steps.filter.outputs.updater }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect Changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            bot:
+              - 'bot.py'
+              - 'i18n.py'
+              - 'messages.xml'
+              - 'syncxml.py'
+              - 'config.py'
+              - 'requirements.txt'
+              - '.github/workflows/**'
+            worker:
+              - 'worker.py'
+              - 'worker_*.py'
+              - 'downloader.py'
+              - 'services.py'
+              - 'preupdater.py'
+              - 'database.py'
+              - 'config.py'
+              - 'requirements.txt'
+              - '.github/workflows/**'
+            updater:
+              - 'updater.py'
+              - 'config.py'
+              - 'requirements.txt'
+              - '.github/workflows/**'
+
+  # 📦 2. Собираем только те приложения, у которых были изменения
   build:
     name: Build ${{ matrix.app }} (${{ matrix.os }})
+    needs: changes
+    # Условие: собираем, если изменился код компонента OR если это релизный тег (v*) OR если запуск вручную
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -22,15 +67,27 @@ jobs:
 
     steps:
       - name: Checkout code
+        if: |
+          needs.changes.outputs[matrix.app] == 'true' ||
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: |
+          needs.changes.outputs[matrix.app] == 'true' ||
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
+        if: |
+          needs.changes.outputs[matrix.app] == 'true' ||
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch'
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -38,6 +95,10 @@ jobs:
         shell: bash
 
       - name: Build for Linux (Ubuntu) with PyInstaller
+        if: |
+          needs.changes.outputs[matrix.app] == 'true' ||
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch'
         run: |
           EXT=""
           OS_NAME="linux"
@@ -52,6 +113,10 @@ jobs:
         shell: bash
 
       - name: Generate SHA256 Checksums
+        if: |
+          needs.changes.outputs[matrix.app] == 'true' ||
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch'
         run: |
           cd dist
           for file in *; do
@@ -62,16 +127,20 @@ jobs:
         shell: bash
 
       - name: Upload Artifacts
+        if: |
+          needs.changes.outputs[matrix.app] == 'true' ||
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.app }}-${{ matrix.os }}
           path: dist/*
           retention-days: 1
 
+  # 🚀 3. Публикация релиза на GitHub
   release:
     name: Create GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -80,9 +149,23 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Create Release
+      # 🚀 Если это официальный тег (v1.0.0 и т.д.) — делаем полноценный релиз
+      - name: Create Tagged Release
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ✨ Если это обычный коммит в main/master — обновляем релиз "latest"
+      - name: Update Latest Nightly Build
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: latest
+          name: "Latest Build (Nightly)"
+          prerelease: true
           files: release-assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

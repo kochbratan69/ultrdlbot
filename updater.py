@@ -7,7 +7,6 @@ import platform
 import stat
 import subprocess
 
-# 🛠 Укажи имя и владельца репозитория
 GITHUB_OWNER = "kochbratan69"
 GITHUB_REPO = "ultrdlbot"
 
@@ -30,9 +29,6 @@ def fetch_text(url: str) -> str:
 
 
 def check_and_update_all() -> bool:
-    """
-    Проверяет и обновляет ВСЕ бинарники (и bot, и worker) в рабочей директории.
-    """
     system_os = platform.system().lower()
     if system_os not in ["linux", "windows"]:
         print(f"[Updater] ОС {system_os} не поддерживается.")
@@ -40,7 +36,6 @@ def check_and_update_all() -> bool:
 
     ext = ".exe" if system_os == "windows" else ""
 
-    # Проверка: запущен ли скомпилированный PyInstaller бинарник
     if not getattr(sys, 'frozen', False):
         print("[Updater] Запущен сырой .py скрипт. Автообновление пропущено.")
         return False
@@ -48,8 +43,8 @@ def check_and_update_all() -> bool:
     current_exe_path = os.path.abspath(sys.executable)
     exe_dir = os.path.dirname(current_exe_path)
 
-    # 1. Запрашиваем информацию о последнем релизе из GitHub
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+    # ✨ 1. Запрашиваем информацию о релизе "latest" (Nightly)
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/tags/latest"
     req = urllib.request.Request(url, headers={"User-Agent": "Python-Self-Updater"})
 
     try:
@@ -61,7 +56,6 @@ def check_and_update_all() -> bool:
 
     assets = {asset.get("name"): asset.get("browser_download_url") for asset in data.get("assets", [])}
 
-    # Список всех бинарников, которые нужно обновить
     apps = ["dlbot", "dlworker"]
     restart_self = False
     any_updated = False
@@ -74,10 +68,9 @@ def check_and_update_all() -> bool:
         hash_url = assets.get(expected_hash_name)
 
         if not bin_url or not hash_url:
-            print(f"[Updater] Файлы {expected_bin_name} / {expected_hash_name} не найдены в релизе.")
+            print(f"[Updater] Файлы {expected_bin_name} / {expected_hash_name} не найдены в релизе latest.")
             continue
 
-        # Путь к проверяемому файлу на диске
         is_current_app = (os.path.basename(current_exe_path).lower() == expected_bin_name.lower())
         local_app_path = current_exe_path if is_current_app else os.path.join(exe_dir, expected_bin_name)
 
@@ -89,7 +82,6 @@ def check_and_update_all() -> bool:
             print(f"[Updater] Ошибка скачивания хэша для {app_name}: {e}")
             continue
 
-        # Сравниваем хэш
         if local_hash == remote_hash and local_hash != "":
             print(f"✅ [Updater] {app_name} уже актуальной версии.")
             continue
@@ -99,12 +91,10 @@ def check_and_update_all() -> bool:
         tmp_path = os.path.join(exe_dir, f"tmp_{app_name}{ext}")
 
         try:
-            # Скачиваем бинарник
             req_dl = urllib.request.Request(bin_url, headers={"User-Agent": "Python-Self-Updater"})
             with urllib.request.urlopen(req_dl) as response, open(tmp_path, "wb") as out_file:
                 out_file.write(response.read())
 
-            # Сверяем хэш скачанного файла с удалённым
             downloaded_hash = get_file_sha256(tmp_path)
             if downloaded_hash != remote_hash:
                 print(f"💥 [Updater] Ошибка целостности файла {app_name}: хэш не совпал! Пропуск.")
@@ -112,12 +102,10 @@ def check_and_update_all() -> bool:
                     os.remove(tmp_path)
                 continue
 
-            # Выставляем права на исполнение для Linux
             if system_os == "linux":
                 st = os.stat(tmp_path)
                 os.chmod(tmp_path, st.st_mode | stat.S_IEXEC)
 
-            # Заменяем старый файл на новый
             if os.path.exists(local_app_path):
                 old_path = local_app_path + ".old"
                 if os.path.exists(old_path):
@@ -128,7 +116,6 @@ def check_and_update_all() -> bool:
             print(f"✅ [Updater] Файл {app_name} успешно обновлён!")
             any_updated = True
 
-            # Если мы обновили запущенный прямо сейчас процесс — ставим флаг на перезапуск
             if is_current_app:
                 restart_self = True
 
@@ -137,7 +124,6 @@ def check_and_update_all() -> bool:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    # Завершение работы / Перезапуск
     if restart_self:
         print("🔄 [Updater] Текущий процесс был обновлён. Выполняется перезапуск...")
         subprocess.Popen([current_exe_path] + sys.argv[1:])
@@ -147,5 +133,4 @@ def check_and_update_all() -> bool:
 
 
 if __name__ == "__main__":
-    # Просто вызываем функцию при старте бота или воркера
     check_and_update_all()
