@@ -6,8 +6,9 @@ import shutil
 import sys
 import secrets
 import zipfile
-from fastapi import FastAPI, HTTPException, Request, Query
-from fastapi.responses import FileResponse, JSONResponse
+import mimetypes
+from fastapi import FastAPI, HTTPException, Request, Query, Response
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel
 
 import config
@@ -34,9 +35,11 @@ app = FastAPI(title="Worker")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     
-    # Разрешаем свободный доступ к скачиванию по шорткодам /{shortcode}
-    if request.method == "GET" and path != "/" and path.count("/") == 1 and not path.startswith("/docs") and not path.startswith("/openapi.json"):
-        return await call_next(request)
+    # Разрешаем свободный доступ к предпросмотру, скачиванию файла и элементам галереи
+    if request.method == "GET" and path != "/" and not path.startswith("/docs") and not path.startswith("/openapi.json"):
+        parts = [p for p in path.split("/") if p]
+        if len(parts) == 1 or (len(parts) >= 2 and parts[1] in ["file", "raw"]):
+            return await call_next(request)
 
     # Проверяем Bearer токен для всех API эндпоинтов
     auth_header = request.headers.get("Authorization")
@@ -126,10 +129,16 @@ async def create_share_endpoint(req: ShareReq):
     if not os.path.exists(task_dir):
         raise HTTPException(status_code=404, detail="Файлы не найдены или устарели")
 
+    # Берём все медиафайлы (исключая технические кэш-файлы)
     files = [
         os.path.join(task_dir, f) for f in os.listdir(task_dir)
         if not f.endswith((".json", ".tmp")) and os.path.isfile(os.path.join(task_dir, f))
     ]
+
+    # Если присутствуют аудио/видео файлы, убираем картинки обложек
+    media_files = [f for f in files if f.lower().endswith((".mp4", ".mkv", ".mov", ".webm", ".mp3", ".m4a", ".flac", ".ogg", ".wav"))]
+    if media_files:
+        files = media_files
 
     if not files:
         raise HTTPException(status_code=404, detail="Медиафайлы не найдены")
@@ -146,6 +155,7 @@ async def create_share_endpoint(req: ShareReq):
         shutil.copy2(source_file, target_path)
         download_name = os.path.basename(source_file)
     else:
+        # Для каруселей (TikTok, Instagram) упаковываем все фото/видео в ZIP
         target_filename = f"{shortcode}.zip"
         target_path = os.path.join(config.SHARE_DIR, target_filename)
         with zipfile.ZipFile(target_path, 'w') as zipf:
@@ -163,8 +173,181 @@ async def create_share_endpoint(req: ShareReq):
 
     return {"shortcode": shortcode, "key": access_key}
 
-# 📥 Скачивание файла по короткой ссылке с проверкой параметров ?k=
-@app.get("/{shortcode}")
+# 🖼️ Роут для отображения отдельных файлов из ZIP-архива (для карусели фото)
+@app.get("/{shortcode}/raw/{inner_filename:path}")
+async def get_raw_zip_item(shortcode: str, inner_filename: str, k: str = Query(None)):
+    if not k:
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
+
+    clean_code = shortcode.split("#")[0].strip()
+    data = database.get_share_link(clean_code)
+
+    if not data or data["access_key"] != k:
+        raise HTTPException(status_code=403, detail="Неверная ссылка или ключ")
+
+    if time.time() > data["expires_at"]:
+        raise HTTPException(status_code=410, detail="Ссылка истекла")
+
+    file_path = data["file_path"]
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    if file_path.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zipf:
+                if inner_filename not in zipf.namelist():
+                    raise HTTPException(status_code=404, detail="Файл в архиве не найден")
+                
+                file_bytes = zipf.read(inner_filename)
+                media_type, _ = mimetypes.guess_type(inner_filename)
+                return Response(content=file_bytes, media_type=media_type or "application/octet-stream")
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=500, detail="Ошибка чтения архива")
+    else:
+        raise HTTPException(status_code=400, detail="Файл не является архивом")
+
+# 👁️ Страница предпросмотра файла или всей карусели в браузере
+@app.get("/{shortcode}", response_class=HTMLResponse)
+async def preview_shared_file(shortcode: str, k: str = Query(None)):
+    if not k:
+        raise HTTPException(status_code=403, detail="Доступ запрещен: отсутствует ключ доступа")
+
+    clean_code = shortcode.split("#")[0].strip()
+    data = database.get_share_link(clean_code)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Ссылка не найдена или истекла")
+
+    if data["access_key"] != k:
+        raise HTTPException(status_code=403, detail="Неверный ключ доступа")
+
+    if time.time() > data["expires_at"]:
+        raise HTTPException(status_code=410, detail="Срок действия ссылки истек")
+
+    file_path = data["file_path"]
+    filename = data["filename"]
+    ext = os.path.splitext(filename)[1].lower()
+    download_url = f"/{clean_code}/file?k={k}"
+
+    player_html = ""
+    download_btn_text = "Скачать файл 🚀"
+
+    # Если это ZIP-архив с каруселью картинок/видео
+    if ext == ".zip" and os.path.exists(file_path):
+        download_btn_text = "Скачать всё (ZIP) 🚀"
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zipf:
+                inner_files = [f for f in zipf.namelist() if not f.startswith("__MACOSX")]
+                media_files = [
+                    f for f in inner_files 
+                    if os.path.splitext(f)[1].lower() in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mov", ".webm"]
+                ]
+
+                if media_files:
+                    gallery_items = []
+                    for f in media_files:
+                        f_ext = os.path.splitext(f)[1].lower()
+                        raw_url = f"/{clean_code}/raw/{f}?k={k}"
+                        if f_ext in [".mp4", ".mov", ".webm"]:
+                            gallery_items.append(f'<video controls src="{raw_url}" style="width:100%; max-height:400px; border-radius:12px; margin-bottom:12px; object-fit:contain;"></video>')
+                        else:
+                            gallery_items.append(f'<img src="{raw_url}" style="width:100%; max-height:450px; border-radius:12px; margin-bottom:12px; object-fit:contain;" />')
+                    
+                    player_html = f'<div class="gallery-container" style="max-height:500px; overflow-y:auto; margin:15px 0; padding-right:5px;">{"".join(gallery_items)}</div>'
+                else:
+                    player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
+        except Exception as e:
+            player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
+
+    elif ext in [".mp4", ".mov", ".webm", ".mkv"]:
+        player_html = f'<video controls autoplay src="{download_url}" style="max-width:100%; max-height:360px; border-radius:12px; margin: 15px 0;"></video>'
+    elif ext in [".mp3", ".m4a", ".ogg", ".wav", ".flac"]:
+        player_html = f'<audio controls autoplay src="{download_url}" style="width:100%; margin: 25px 0;"></audio>'
+    elif ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+        player_html = f'<img src="{download_url}" style="max-width:100%; max-height:360px; border-radius:12px; object-fit:contain; margin: 15px 0;" />'
+    else:
+        player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Предпросмотр — {filename}</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                background: #0f172a;
+                color: #f8fafc;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                padding: 20px;
+                box-sizing: border-box;
+            }}
+            .card {{
+                background: #1e293b;
+                padding: 28px;
+                border-radius: 20px;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+                max-width: 480px;
+                width: 100%;
+                text-align: center;
+            }}
+            .filename {{
+                font-size: 15px;
+                font-weight: 600;
+                word-break: break-all;
+                color: #cbd5e1;
+            }}
+            .gallery-container::-webkit-scrollbar {{
+                width: 6px;
+            }}
+            .gallery-container::-webkit-scrollbar-thumb {{
+                background: #475569;
+                border-radius: 4px;
+            }}
+            .btn-download {{
+                display: block;
+                width: 100%;
+                padding: 14px 0;
+                background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+                color: white;
+                text-decoration: none;
+                font-weight: bold;
+                border-radius: 12px;
+                font-size: 16px;
+                transition: transform 0.2s, opacity 0.2s;
+                box-sizing: border-box;
+            }}
+            .btn-download:hover {{
+                opacity: 0.9;
+                transform: translateY(-2px);
+            }}
+            .footer {{
+                margin-top: 16px;
+                font-size: 12px;
+                color: #64748b;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <div class="filename">📁 {filename}</div>
+            {player_html}
+            <a href="{download_url}" class="btn-download" download>{download_btn_text}</a>
+            <div class="footer">Ссылка действительна 1 час</div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+# 📥 Прямое скачивание файла/архива
+@app.get("/{shortcode}/file")
 async def download_shared_file(shortcode: str, k: str = Query(None)):
     if not k:
         raise HTTPException(status_code=403, detail="Доступ запрещен: отсутствует ключ доступа")

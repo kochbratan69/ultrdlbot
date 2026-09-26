@@ -110,11 +110,11 @@ async def search_youtube_info(artist: str | None, title: str | None, album: str 
                         score += 200
                     if " · " in e_desc:
                         score += 50
-                    if album or album.lower() in e_desc: # type: ignore
+                    if album in e_desc:
                         score += 80
                     if "topic" in e_uploader:
                         score += 100
-                    if artist or artist.lower() in e_uploader: # type: ignore
+                    if artist in e_uploader:
                         score += 150
                     if "audio" in e_title:
                         score += 30
