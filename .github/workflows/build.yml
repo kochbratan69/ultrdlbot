@@ -36,6 +36,7 @@ jobs:
               - 'messages.xml'
               - 'syncxml.py'
               - 'config.py'
+              - 'handlers.py'
               - 'requirements.txt'
               - '.github/workflows/**'
             worker:
