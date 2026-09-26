@@ -20,14 +20,14 @@ async def extract_video_qualities(url: str) -> list[int]:
         ydl_opts['cookiefile'] = config.COOKIE_FILE
 
     def _get_info():
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl: # type: ignore
             return ydl.extract_info(url, download=False)
 
     try:
         info = await asyncio.to_thread(_get_info)
         formats = info.get('formats', [])
         heights = set()
-        for f in formats:
+        for f in formats: # type: ignore
             h = f.get('height')
             vcodec = f.get('vcodec')
             if h and vcodec != 'none' and h >= 144:
@@ -95,9 +95,9 @@ async def search_youtube_info(artist: str | None, title: str | None, album: str 
             'js_runtimes': {'node': {}},
         }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl: # type: ignore
             info = ydl.extract_info(f"ytsearch5:{search_str}", download=False)
-            if info and 'entries' in info and len(info['entries']) > 0:
+            if info and 'entries' in info and len(info['entries']) > 0: # type: ignore
                 entries = [e for e in info['entries'] if e]
                 
                 def score_entry(entry):
@@ -110,10 +110,12 @@ async def search_youtube_info(artist: str | None, title: str | None, album: str 
                         score += 200
                     if " · " in e_desc:
                         score += 50
-                    if album and album.lower() in e_desc:
+                    if album or album.lower() in e_desc: # type: ignore
                         score += 80
                     if "topic" in e_uploader:
                         score += 100
+                    if artist or artist.lower() in e_uploader: # type: ignore
+                        score += 150
                     if "audio" in e_title:
                         score += 30
                     if any(bad in e_title for bad in ["official video", "official lyric", "lyric video", "music video", "official clip", " mv", "live"]):

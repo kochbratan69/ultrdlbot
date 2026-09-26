@@ -1,9 +1,10 @@
 import os
+import time
 import aiohttp
 from urllib.parse import urlparse
 from aiogram import Router, F, types
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, FSInputFile, InputMediaPhoto, InputMediaVideo
+from aiogram.types import CallbackQuery, FSInputFile, InputMediaPhoto, InputMediaVideo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
@@ -13,8 +14,13 @@ router = Router()
 
 async def call_worker(endpoint: str, json_data: dict) -> dict:
     url = f"{config.WORKER_URL}{endpoint}"
+    headers = {"Authorization": f"Bearer {config.AUTH_TOKEN}"}
     timeout = aiohttp.ClientTimeout(total=600)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    
+    # При ENABLE_SSL отключаем строгую проверку сертификата при обращении к 127.0.0.1
+    connector = aiohttp.TCPConnector(ssl=False) if config.ENABLE_SSL else None
+
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers, connector=connector) as session:
         async with session.post(url, json=json_data) as resp:
             data = await resp.json()
             if resp.status != 200:
@@ -30,6 +36,37 @@ async def cmd_plus_reload(message: types.Message):
     count = load_plus_ids()
     await message.answer(f"список Plus-пользователей обновлен! ✨\nВсего ID: **{count}**", parse_mode="Markdown")
 
+@router.callback_query(F.data.startswith("share:"))
+async def process_share_callback(callback: CallbackQuery):
+    _, cache_id, created_at_str = callback.data.split(":") # type: ignore
+    created_at = int(created_at_str)
+    now = int(time.time())
+
+    if now - created_at > 1800:
+        await callback.answer(
+            "⏳ Срок действия кнопки истек! Поделиться файлом можно только в течение 30 минут с момента скачивания.",
+            show_alert=True
+        )
+        return
+
+    await callback.answer("Генерирую ссылочку... ✨")
+
+    try:
+        res = await call_worker("/createshare", {"cache_id": cache_id})
+        shortcode = res.get("shortcode")
+        access_key = res.get("key")
+        
+        share_url = f"{config.DOMAIN}/{shortcode}?k={access_key}#1hr"
+
+        await callback.message.reply( # type: ignore
+            f"🔗 **Твоя ссылка для скачивания:**\n`{share_url}`\n\n"
+            f"⏱ _Ссылка прекратит работать через 1 час!_",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        await callback.message.reply(f"Ошибочка при создании ссылки TwT: `{e}`", parse_mode="Markdown") # type: ignore
+
 @router.message(F.text)
 async def handle_message(message: types.Message):
     text = message.text
@@ -41,28 +78,24 @@ async def handle_message(message: types.Message):
     status_msg = await message.answer("анализирую твою ссылочку... (⁠｡⁠•̀⁠ᴗ⁠-⁠)⁠✧")
     cache_id = str(message.message_id)
 
-    # 1. Instagram
     if "instagram.com" in domain:
         config.URL_CACHE[cache_id] = {"url": url}
         await status_msg.edit_text("скачиваю пост из Instagram... ^w^ ✨")
         await process_worker_download(message, cache_id, mode="instagram", status_msg=status_msg)
         return
 
-    # 2. Gallery-Dl (TikTok, X, Pinterest)
     if any(d in domain for d in ["tiktok.com", "tiktokv.com", "x.com", "twitter.com", "pinterest.com", "pin.it"]):
         config.URL_CACHE[cache_id] = {"url": url}
         await status_msg.edit_text("скачиваю медиа... ^w^ ✨")
         await process_worker_download(message, cache_id, mode="gallery_dl", status_msg=status_msg)
         return
 
-    # 2. SoundCloud
     if "soundcloud.com" in domain:
         config.URL_CACHE[cache_id] = {"url": url}
         await status_msg.edit_text("начинаю скачивать для тебя.. ^w^")
         await process_worker_download(message, cache_id, mode="audio_sc", status_msg=status_msg)
         return
 
-    # 3. Spotify
     if "spotify.com" in domain:
         await status_msg.edit_text("ищу альбомную версию без шумов клипа... ♡")
         try:
@@ -89,7 +122,6 @@ async def handle_message(message: types.Message):
             await status_msg.edit_text(f"ошибка Spotify TwT: {e}")
         return
 
-    # 4. YouTube / Обычные видео
     config.URL_CACHE[cache_id] = {"url": url}
     try:
         q_data = await call_worker("/extractqualities", {"url": url})
@@ -133,6 +165,11 @@ async def process_worker_download(message: types.Message, cache_id: str, mode: s
         payload = {"url": payload}
 
     user_msg_id = int(cache_id) if cache_id.isdigit() else message.message_id
+    created_at = int(time.time())
+
+    share_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Поделиться 🔗", callback_data=f"share:{cache_id}:{created_at}")]
+    ])
 
     try:
         res = await call_worker("/download", {
@@ -143,24 +180,19 @@ async def process_worker_download(message: types.Message, cache_id: str, mode: s
         })
         caption = f"скачано! by @{config.BOT_USERNAME} ♡"
 
-        # Отправка Галереи
         if res.get("type") == "gallery":
             files = res.get("files", [])
             if len(files) == 1:
                 f_path = files[0]
                 if f_path.lower().endswith((".mp4", ".mov", ".mkv")):
                     await message.bot.send_video( # type: ignore
-                        message.chat.id, 
-                        FSInputFile(f_path), 
-                        caption=caption, 
-                        reply_to_message_id=user_msg_id
+                        message.chat.id, FSInputFile(f_path), caption=caption, 
+                        reply_to_message_id=user_msg_id, reply_markup=share_kb
                     )
                 else:
                     await message.bot.send_photo( # type: ignore
-                        message.chat.id, 
-                        FSInputFile(f_path), 
-                        caption=caption, 
-                        reply_to_message_id=user_msg_id
+                        message.chat.id, FSInputFile(f_path), caption=caption, 
+                        reply_to_message_id=user_msg_id, reply_markup=share_kb
                     )
             else:
                 chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
@@ -173,34 +205,26 @@ async def process_worker_download(message: types.Message, cache_id: str, mode: s
                         else:
                             group.append(InputMediaPhoto(media=FSInputFile(f_path), caption=item_caption))
 
-                    # Отвечаем на исходное сообщение первой группой медиа
                     reply_id = user_msg_id if idx == 0 else None
-                    await message.bot.send_media_group( # type: ignore
-                        message.chat.id, 
-                        media=group, 
-                        reply_to_message_id=reply_id
-                    )
+                    await message.bot.send_media_group(message.chat.id, media=group, reply_to_message_id=reply_id) # type: ignore
+                
+                await message.bot.send_message( # type: ignore
+                    message.chat.id, "✨ Нажми ниже, чтобы поделиться всей галереей:", 
+                    reply_to_message_id=user_msg_id, reply_markup=share_kb
+                )
 
-        # Отправка Аудио
         elif res.get("type") == "audio":
             thumb = FSInputFile(res["thumb"]) if res.get("thumb") else None
             await message.bot.send_audio( # type: ignore
-                message.chat.id,
-                audio=FSInputFile(res["file"]),
-                caption=caption,
-                title=res.get("title"),
-                performer=res.get("artist"),
-                thumbnail=thumb,
-                reply_to_message_id=user_msg_id
+                message.chat.id, audio=FSInputFile(res["file"]), caption=caption,
+                title=res.get("title"), performer=res.get("artist"), thumbnail=thumb,
+                reply_to_message_id=user_msg_id, reply_markup=share_kb
             )
 
-        # Отправка Видео
         elif res.get("type") == "video":
             await message.bot.send_video( # type: ignore
-                message.chat.id, 
-                video=FSInputFile(res["file"]), 
-                caption=caption, 
-                reply_to_message_id=user_msg_id
+                message.chat.id, video=FSInputFile(res["file"]), caption=caption, 
+                reply_to_message_id=user_msg_id, reply_markup=share_kb
             )
 
         if status_msg:
@@ -209,9 +233,3 @@ async def process_worker_download(message: types.Message, cache_id: str, mode: s
     except Exception as e:
         if status_msg:
             await status_msg.edit_text(f"ошибочка при скачивании TwT:\n`{e}`", parse_mode="Markdown")
-    finally:
-        # Очищаем временную папку на воркере
-        try:
-            await call_worker("/cleanup", {"cache_id": cache_id})
-        except Exception:
-            pass

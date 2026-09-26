@@ -1,13 +1,28 @@
 import os
 import sys
+import secrets
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DEBUG = False
 DISABLE_COOKIES = False
-# Настройки подключения
-WORKER_URL = os.getenv("WORKER_URL", "http://127.0.0.1:8000")
+
+# 🔒 SSL / HTTPS Настройки через .env
+ENABLE_SSL = os.getenv("ENABLE_SSL", "false").lower() in ("true", "1", "yes")
+
+SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "cert.pem"))
+SSL_KEY_FILE = os.getenv("SSL_KEY_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "key.pem"))
+
+# По умолчанию порт 443 для SSL и 8000 без SSL
+DEFAULT_PORT = 443 if ENABLE_SSL else 8000
+WORKER_PORT = int(os.getenv("WORKER_PORT", DEFAULT_PORT))
+
+# Настройки подключения бота к воркеру
+DEFAULT_WORKER_URL = f"https://127.0.0.1:{WORKER_PORT}" if ENABLE_SSL else f"http://127.0.0.1:{WORKER_PORT}"
+WORKER_URL = os.getenv("WORKER_URL", DEFAULT_WORKER_URL)
+
+DOMAIN = os.getenv("DOMAIN", "https://ultra.qd.je")
 
 # Настройки бота
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -16,8 +31,21 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "ultrdlbot")
 # Пути
 BASE_DIR = os.path.dirname(os.path.abspath(sys.executable if hasattr(sys, '_MEIPASS') else __file__))
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "DOWNLOADS")
+SHARE_DIR = os.path.join(BASE_DIR, "SHARES")
 COOKIE_FILE = os.path.join(BASE_DIR, "cookiefile.txt")
+
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(SHARE_DIR, exist_ok=True)
+
+# 🔑 Bearer-токен авторизации
+AUTH_TOKEN_FILE = os.path.join(BASE_DIR, ".authtoken")
+if os.path.exists(AUTH_TOKEN_FILE):
+    with open(AUTH_TOKEN_FILE, "r", encoding="utf-8") as f:
+        AUTH_TOKEN = f.read().strip()
+else:
+    AUTH_TOKEN = secrets.token_hex(32)
+    with open(AUTH_TOKEN_FILE, "w", encoding="utf-8") as f:
+        f.write(AUTH_TOKEN)
 
 # Плюс-пользователи и кэш
 PLUS_FILE = os.path.join(BASE_DIR, "plusids")
@@ -28,32 +56,4 @@ SUPPORTED_DOMAINS = [
     "youtube.com", "youtu.be", "soundcloud.com", "spotify.com",
     "tiktok.com", "tiktokv.com", "instagram.com", "vk.com", 
     "x.com", "twitter.com", "pinterest.com", "pin.it"
-]
-
-NAME = [
-    "abyss", "acorn", "altar", "amber", "anchor", "anemone", "anvil", "arch", "artifact", "asteroid", 
-    "atmosphere", "aurora", "avalanche", "beacon", "beam", "birch", "blaze", "bliss", "blossom", "boulder", 
-    "brass", "breeze", "brine", "bronze", "brook", "cadence", "calm", "canyon", "canopy", "cascade", "cavern", 
-    "cedar", "chasm", "chime", "cinder", "cliff", "clockwork", "cloud", "cloudscape", "coast", "comet", 
-    "compass", "constellation", "copper", "coral", "cosmos", "crater", "creek", "crest", "crystal", "current", 
-    "cypress", "dawn", "daybreak", "deluge", "desert", "dew", "diamond", "draft", "dragonfly", "dream", 
-    "drizzle", "droplet", "dusk", "echo", "eclipse", "ember", "emerald", "equinox", "ether", "eternity", 
-    "falcon", "feather", "fern", "firmament", "fjord", "flame", "flare", "fog", "forest", "frost", "galaxy", 
-    "gale", "genesis", "ghost", "glacier", "glade", "glass", "gleam", "glimmer", "glint", "gloaming", "glow", 
-    "granite", "grove", "gust", "hail", "halo", "harbor", "harmony", "haven", "haze", "horizon", "hum", "hush", 
-    "ice", "iceberg", "illusion", "impulse", "infinity", "intuition", "iris", "ivory", "jade", "jasmine", 
-    "jungle", "lagoon", "lake", "landscape", "lantern", "lavender", "leaf", "light", "lightning", "lily", 
-    "linen", "loom", "lotus", "luster", "mantle", "marble", "meadow", "melody", "memory", "meteor", "midnight", 
-    "mirage", "mirror", "mist", "monsoon", "monument", "moon", "moonlight", "moss", "mountain", "murmur", 
-    "mystery", "nadir", "nebula", "nectar", "nightfall", "noon", "nostalgia", "oak", "oasis", "obsidian", 
-    "ocean", "onyx", "opal", "oracle", "orb", "orbit", "orchid", "origin", "panorama", "peace", "peak", 
-    "pearl", "pendulum", "petal", "phantom", "pine", "pitch", "plain", "planet", "plateau", "pollen", "pond", 
-    "poplar", "portal", "prairie", "prism", "pulsar", "quartz", "quasar", "radiance", "rain", "ravine", 
-    "ray", "redwood", "reef", "reflection", "refuge", "relic", "resonance", "reverie", "ridge", "ripple", 
-    "river", "roar", "root", "ruby", "rumor", "rumble", "rustle", "sanctuary", "sapphire", "satin", "sea", 
-    "seascape", "serenity", "shade", "shadow", "shimmer", "shore", "shroud", "silence", "silk", "silver", 
-    "skyline", "snow", "sunbeam", "solitude", "soul", "spark", "spectrum", "sphere", "spire", "spirit", 
-    "spiral", "squall", "starlight", "static", "steel", "stillness", "storm", "stratosphere", "stream", 
-    "summit", "sun", "sundown", "sunrise", "sunset", "supernova", "talisman", "tapestry", "tempest", "thicket", 
-    "threshold", "thunder", "tide", "torrent", "tower", "tundra", "twilight"
 ]

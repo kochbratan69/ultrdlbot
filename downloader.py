@@ -281,7 +281,7 @@ async def execute_download_task(cache_id: str, mode: str, quality: int = 0, payl
         'force_ipv6': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['visionos', 'ios', 'mweb'],
+                'player_client': ['android_vr', 'visionos', 'ios', 'mweb'],
             }
         },
     }
