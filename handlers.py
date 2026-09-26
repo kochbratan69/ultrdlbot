@@ -64,7 +64,7 @@ async def process_share_callback(callback: CallbackQuery):
         share_url = f"{config.DOMAIN}/{shortcode}?k={access_key}#1hr"
 
         await callback.message.reply(
-            get_msg("msg_share_result", lang, share_url=share_url, shortcode=shortcode, key=access_key, domain=config.DOMAIN),
+            get_msg("msg_share_result", lang, share_url=share_url),
             parse_mode="Markdown",
             disable_web_page_preview=True
         )

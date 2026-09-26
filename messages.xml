@@ -32,8 +32,8 @@
 
         <!-- Подпись к файлам и ошибки -->
         <caption_downloaded>@$bot_username</caption_downloaded>
-        <alert_plus_only_quality>❌ скачивание в высшем качестве доступно только для Plus-пользователей! >_<</alert_plus_only_quality>
-        <msg_link_expired>ссылочка устарела >3<</msg_link_expired>
+        <alert_plus_only_quality>❌ скачивание в высшем качестве доступно только для Plus-пользователей! &gt;_&lt;</alert_plus_only_quality>
+        <msg_link_expired>ссылочка устарела &gt;3&lt;</msg_link_expired>
         <err_download>ошибка при скачивании TwT:&#10;`$error`</err_download>
         <err_spotify>ошибка спотика TwT: $error</err_spotify>
         <err_share>ошибка при создании ссылки TwT: `$error`</err_share>
@@ -71,8 +71,8 @@
 
         <!-- Captions and Errors -->
         <caption_downloaded>@$bot_username</caption_downloaded>
-        <alert_plus_only_quality>❌ higher quality downloads are for Plus users only! >_<</alert_plus_only_quality>
-        <msg_link_expired>link expired >3<</msg_link_expired>
+        <alert_plus_only_quality>❌ higher quality downloads are for Plus users only! &gt;_&lt;</alert_plus_only_quality>
+        <msg_link_expired>link expired &gt;3&lt;</msg_link_expired>
         <err_download>download error TwT:&#10;`$error`</err_download>
         <err_spotify>spotify error TwT: $error</err_spotify>
         <err_share>error creating share link TwT: `$error`</err_share>
