@@ -41,6 +41,8 @@ jobs:
         run: |
           EXT=""
           OS_NAME="linux"
+
+          python syncxml.py
           
           if [ "${{ matrix.app }}" = "worker" ]; then
             pyinstaller --onefile --name "dl${{ matrix.app }}-${OS_NAME}${EXT}" --collect-all gallery_dl ${{ matrix.app }}.py

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<messages default_lang="ru">
+    <ru>
+        <cmd_start>приветик! :3 отправь мне ссылку, и я скачаю её для тебя uwu</cmd_start>
+        <cmd_plus_reload>список Plus-пользователей обновлен! ✨&#10;Всего ID: **$count**</cmd_plus_reload>
+        
+        <!-- Статусы обработки -->
+        <msg_analyzing>анализирую твою ссылочку...</msg_analyzing>
+        <msg_downloading_ig>скачиваю пост из Instagram... ^w^</msg_downloading_ig>
+        <msg_downloading_media>скачиваю медиа... ^w^</msg_downloading_media>
+        <msg_downloading_audio>начинаю скачивать трек для тебя.. ^w^</msg_downloading_audio>
+        <msg_downloading_start>начинаю скачивать для тебя.. ^w^</msg_downloading_start>
+        <msg_spotify_searching>ищу подходящую версию на ютубе...</msg_spotify_searching>
+        <msg_choose_quality>выбери качество видео или сохрани как трек :3</msg_choose_quality>
+
+        <!-- Кнопки выбора качества -->
+        <btn_video_star>видео ($quality p) ⭐</btn_video_star>
+        <btn_video>видео ($quality p)</btn_video>
+        <btn_audio_track>трек (~130-160 kb/s)</btn_audio_track>
+
+        <!-- Spotify -->
+        <btn_spotify_yt>скачать с ют</btn_spotify_yt>
+        <btn_spotify_sc>найти в ск</btn_spotify_sc>
+        <msg_spotify_info>🎵 **$artist_str$title**$album_str&#10;&#10;$yt_info_str💡 *всегда можно попробовать саундклауд! :3*</msg_spotify_info>
+
+        <!-- Кнопка и ссылка "Поделиться" -->
+        <btn_share>поделиться ссылкой</btn_share>
+        <msg_share_generating>генерирую ссылочку...</msg_share_generating>
+        <alert_share_expired>срок действия кнопочки истек! поделиться файлом можно только в течение 30 минут с момента скачивания.. :c</alert_share_expired>
+        <msg_share_result>**твоя ссылка для скачивания:**&#10;`$share_url`&#10;&#10;⏱_она перестанет работать через ~1 час!_</msg_share_result>
+        <msg_gallery_share_prompt>нажми ниже, чтобы поделиться этими файлами:</msg_gallery_share_prompt>
+
+        <!-- Подпись к файлам и ошибки -->
+        <caption_downloaded>@$bot_username</caption_downloaded>
+        <alert_plus_only_quality>❌ скачивание в высшем качестве доступно только для Plus-пользователей! >_<</alert_plus_only_quality>
+        <msg_link_expired>ссылочка устарела >3<</msg_link_expired>
+        <err_download>ошибка при скачивании TwT:&#10;`$error`</err_download>
+        <err_spotify>ошибка спотика TwT: $error</err_spotify>
+        <err_share>ошибка при создании ссылки TwT: `$error`</err_share>
+    </ru>
+
+    <en>
+        <cmd_start>hii! :3 send me a link, and i will download it for you uwu</cmd_start>
+        <cmd_plus_reload>Plus users list updated! ✨&#10;Total IDs: **$count**</cmd_plus_reload>
+        
+        <!-- Processing Statuses -->
+        <msg_analyzing>analyzing your link...</msg_analyzing>
+        <msg_downloading_ig>downloading Instagram post... ^w^</msg_downloading_ig>
+        <msg_downloading_media>downloading media... ^w^</msg_downloading_media>
+        <msg_downloading_audio>starting downloading track for you.. ^w^</msg_downloading_audio>
+        <msg_downloading_start>starting download for you.. ^w^</msg_downloading_start>
+        <msg_spotify_searching>searching exact track on yt...</msg_spotify_searching>
+        <msg_choose_quality>choose video quality or save as audio track :3</msg_choose_quality>
+
+        <!-- Quality Buttons -->
+        <btn_video_star>video ($quality p) ⭐</btn_video_star>
+        <btn_video>video ($quality p)</btn_video>
+        <btn_audio_track>audio track (~130-160 kb/s)</btn_audio_track>
+
+        <!-- Spotify -->
+        <btn_spotify_yt>download from yt</btn_spotify_yt>
+        <btn_spotify_sc>find on sc</btn_spotify_sc>
+        <msg_spotify_info>🎵 **$artist_str$title**$album_str&#10;&#10;$yt_info_str💡 *you can always try SoundCloud! :3*</msg_spotify_info>
+
+        <!-- Share Button and Links -->
+        <btn_share>share link</btn_share>
+        <msg_share_generating>generating link...</msg_share_generating>
+        <alert_share_expired>share button expired! you can only share within 30 minutes after download.. :c</alert_share_expired>
+        <msg_share_result>**ur download link:**&#10;`$share_url`&#10;&#10;_it expires in 1 hour!_</msg_share_result>
+        <msg_gallery_share_prompt>click below to share all those files:</msg_gallery_share_prompt>
+
+        <!-- Captions and Errors -->
+        <caption_downloaded>@$bot_username</caption_downloaded>
+        <alert_plus_only_quality>❌ higher quality downloads are for Plus users only! >_<</alert_plus_only_quality>
+        <msg_link_expired>link expired >3<</msg_link_expired>
+        <err_download>download error TwT:&#10;`$error`</err_download>
+        <err_spotify>spotify error TwT: $error</err_spotify>
+        <err_share>error creating share link TwT: `$error`</err_share>
+    </en>
+</messages>
