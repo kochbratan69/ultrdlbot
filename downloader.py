@@ -283,6 +283,7 @@ async def execute_download_task(cache_id: str, mode: str, quality: int = 0, payl
             'youtube': {
                 'formats': ['duplicate'],
                 'player_client': ['web', 'web_music', 'mweb'],
+                'po_token': ['web+bgutilhttp']
             },
             'youtubepot-bgutilhttp': {
                 'base_url': 'http://127.0.0.1:4444'
