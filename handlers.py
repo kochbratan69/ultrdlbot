@@ -101,6 +101,12 @@ async def handle_message(message: types.Message):
         await process_worker_download(message, cache_id, mode="audio_sc", status_msg=status_msg)
         return
 
+    if "music.youtube.com" in domain:
+            config.URL_CACHE[cache_id] = {"url": url}
+            await status_msg.edit_text(get_msg("msg_downloading_audio", lang))
+            await process_worker_download(message, cache_id, mode="audio_yt", status_msg=status_msg)
+            return
+
     if "spotify.com" in domain:
         await status_msg.edit_text(get_msg("msg_spotify_searching", lang))
         try:

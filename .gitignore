@@ -3,3 +3,8 @@ build
 .venv
 __pycache__
 *.spec
+.env
+.authtoken
+.plus
+*.db
+*.exe

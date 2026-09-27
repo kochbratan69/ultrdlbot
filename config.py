@@ -48,7 +48,7 @@ else:
         f.write(AUTH_TOKEN)
 
 # Плюс-пользователи и кэш
-PLUS_FILE = os.path.join(BASE_DIR, "plusids")
+PLUS_FILE = os.path.join(BASE_DIR, ".plus")
 PLUS_USERS: set[int] = set()
 URL_CACHE: dict[str, dict | str] = {}
 

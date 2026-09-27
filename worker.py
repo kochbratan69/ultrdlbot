@@ -30,18 +30,46 @@ config.DISABLE_COOKIES = DISABLE_COOKIES
 
 app = FastAPI(title="Worker")
 
+# 📌 Кэш активных ссылок: cache_id -> {"shortcode": str, "key": str, "expires_at": int}
+ACTIVE_SHARES: dict[str, dict] = {}
+
+def load_preview_html(filename: str, player_html: str, download_url: str, download_btn_text: str, expires_at: int, bot_username: str) -> str:
+    base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
+    template_path = os.path.join(base_dir, "preview.html")
+
+    meipass_dir = getattr(sys, '_MEIPASS', None)
+    if not os.path.exists(template_path) and meipass_dir:
+        template_path = os.path.join(meipass_dir, "preview.html")
+
+    content = None
+    if os.path.exists(template_path):
+        try:
+            with open(template_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            logging.error(f"Ошибка чтения preview.html: {e}")
+
+    if not content:
+        content = """<!DOCTYPE html><html><body><pre>error</pre></body></html>"""
+
+    return content.replace("{{filename}}", filename)\
+                  .replace("{{player_html}}", player_html)\
+                  .replace("{{download_url}}", download_url)\
+                  .replace("{{download_btn_text}}", download_btn_text)\
+                  .replace("{{expires_at}}", str(expires_at))\
+                  .replace("{{bot_username}}", bot_username)
+
 # 🔒 Middleware для проверки Bearer-авторизации
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     
-    # Разрешаем свободный доступ к предпросмотру, скачиванию файла и элементам галереи
-    if request.method == "GET" and path != "/" and not path.startswith("/docs") and not path.startswith("/openapi.json"):
+    # Разрешаем свободный доступ по GET и HEAD к предпросмотру, скачиванию файла, обложкам и элементам галереи
+    if request.method in ["GET", "HEAD"] and path != "/" and not path.startswith("/docs") and not path.startswith("/openapi.json"):
         parts = [p for p in path.split("/") if p]
-        if len(parts) == 1 or (len(parts) >= 2 and parts[1] in ["file", "raw"]):
+        if len(parts) == 1 or (len(parts) >= 2 and parts[1] in ["file", "raw", "thumb"]):
             return await call_next(request)
 
-    # Проверяем Bearer токен для всех API эндпоинтов
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized: missing or invalid bearer token"})
@@ -73,6 +101,11 @@ async def background_cleanup_loop():
             database.clean_expired_shares()
             
             now = time.time()
+            # Очищаем устаревшие записи из локального реестра ссылок
+            expired_cache_ids = [cid for cid, s in ACTIVE_SHARES.items() if s["expires_at"] <= now]
+            for cid in expired_cache_ids:
+                ACTIVE_SHARES.pop(cid, None)
+
             if os.path.exists(config.DOWNLOAD_DIR):
                 for folder in os.listdir(config.DOWNLOAD_DIR):
                     folder_path = os.path.join(config.DOWNLOAD_DIR, folder)
@@ -125,41 +158,72 @@ async def download_endpoint(req: DownloadReq):
 
 @app.post("/createshare")
 async def create_share_endpoint(req: ShareReq):
+    now = int(time.time())
+
+    # 1. Проверяем, существует ли уже активная ссылка для этого cache_id (ограничение в 1 ссылку)
+    if req.cache_id in ACTIVE_SHARES:
+        existing = ACTIVE_SHARES[req.cache_id]
+        if existing["expires_at"] > now:
+            db_data = database.get_share_link(existing["shortcode"])
+            if db_data and os.path.exists(db_data["file_path"]):
+                return {"shortcode": existing["shortcode"], "key": existing["key"]}
+        ACTIVE_SHARES.pop(req.cache_id, None)
+
     task_dir = os.path.join(config.DOWNLOAD_DIR, req.cache_id)
     if not os.path.exists(task_dir):
         raise HTTPException(status_code=404, detail="Файлы не найдены или устарели")
 
-    # Берём все медиафайлы (исключая технические кэш-файлы)
+    # Берём все медиафайлы
     all_files = [
         os.path.join(task_dir, f) for f in os.listdir(task_dir)
         if not f.endswith((".json", ".tmp")) and os.path.isfile(os.path.join(task_dir, f))
     ]
 
-    files = [
+    has_thumb_final = os.path.exists(os.path.join(task_dir, "thumb_final.jpg"))
+
+    # Исключаем техническую обложку thumb_final.jpg из общего списка медиафайлов
+    media_files = [
         f for f in all_files 
-        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mkv", ".mov", ".webm", ".mp3", ".m4a", ".flac", ".ogg", ".wav"))
+        if os.path.basename(f) != "thumb_final.jpg" and f.lower().endswith(
+            (".jpg", ".jpeg", ".png", ".webp", ".gif", ".mp4", ".mkv", ".mov", ".webm", ".mp3", ".m4a", ".flac", ".ogg", ".wav")
+        )
     ]
 
-    if not files:
+    if not media_files:
         raise HTTPException(status_code=404, detail="Медиафайлы не найдены")
 
     shortcode = secrets.token_hex(3)
     access_key = secrets.token_hex(4)
-    expires_at = int(time.time()) + 3600
+    expires_at = now + 3600
 
-    if len(files) == 1:
-        source_file = files[0]
+    audio_files = [f for f in media_files if f.lower().endswith((".mp3", ".m4a", ".flac", ".ogg", ".wav"))]
+
+    # 2. Если есть thumb_final.jpg и аудиофайл — это скачанный ТРЕК (не создаём ZIP!)
+    if has_thumb_final and audio_files:
+        source_file = audio_files[0]
         ext = os.path.splitext(source_file)[1]
         target_filename = f"{shortcode}{ext}"
         target_path = os.path.join(config.SHARE_DIR, target_filename)
         shutil.copy2(source_file, target_path)
         download_name = os.path.basename(source_file)
+
+        # Копируем обложку для веб-плеера
+        shutil.copy2(os.path.join(task_dir, "thumb_final.jpg"), os.path.join(config.SHARE_DIR, f"{shortcode}_thumb.jpg"))
+
+    elif len(media_files) == 1:
+        source_file = media_files[0]
+        ext = os.path.splitext(source_file)[1]
+        target_filename = f"{shortcode}{ext}"
+        target_path = os.path.join(config.SHARE_DIR, target_filename)
+        shutil.copy2(source_file, target_path)
+        download_name = os.path.basename(source_file)
+
     else:
-        # Для пакетов (картинки + музыка или видео + музыка) упаковываем все в ZIP
+        # Для нескольких файлов пост-пакета упаковываем в ZIP
         target_filename = f"{shortcode}.zip"
         target_path = os.path.join(config.SHARE_DIR, target_filename)
         with zipfile.ZipFile(target_path, 'w') as zipf:
-            for f in files:
+            for f in media_files:
                 zipf.write(f, arcname=os.path.basename(f))
         download_name = f"post_{req.cache_id}.zip"
 
@@ -171,10 +235,35 @@ async def create_share_endpoint(req: ShareReq):
         access_key=access_key
     )
 
+    # Сохраняем ссылку в активном кэше
+    ACTIVE_SHARES[req.cache_id] = {
+        "shortcode": shortcode,
+        "key": access_key,
+        "expires_at": expires_at
+    }
+
     return {"shortcode": shortcode, "key": access_key}
 
-# 🖼️ Роут для отображения отдельных файлов из ZIP-архива (картинки и аудио)
-@app.get("/{shortcode}/raw/{inner_filename:path}")
+# 🖼️ Роут для получения обложки трека
+@app.get("/{shortcode}/thumb")
+async def get_share_thumb(shortcode: str, k: str = Query(None)):
+    if not k:
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
+
+    clean_code = shortcode.split("#")[0].strip()
+    data = database.get_share_link(clean_code)
+
+    if not data or data["access_key"] != k:
+        raise HTTPException(status_code=403, detail="Неверная ссылка или ключ")
+
+    thumb_path = os.path.join(config.SHARE_DIR, f"{clean_code}_thumb.jpg")
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path, media_type="image/jpeg")
+    
+    raise HTTPException(status_code=404, detail="Обложка не найдена")
+
+# 🖼️ Роут для отображения отдельных файлов из ZIP-архива
+@app.api_route("/{shortcode}/raw/{inner_filename:path}", methods=["GET", "HEAD"])
 async def get_raw_zip_item(shortcode: str, inner_filename: str, k: str = Query(None)):
     if not k:
         raise HTTPException(status_code=403, detail="Доступ запрещен")
@@ -206,7 +295,7 @@ async def get_raw_zip_item(shortcode: str, inner_filename: str, k: str = Query(N
     else:
         raise HTTPException(status_code=400, detail="Файл не является архивом")
 
-# 👁️ Страница предпросмотра: Картинки сверху, Музыка снизу
+# 👁️ Страница предпросмотра
 @app.get("/{shortcode}", response_class=HTMLResponse)
 async def preview_shared_file(shortcode: str, k: str = Query(None)):
     if not k:
@@ -230,11 +319,10 @@ async def preview_shared_file(shortcode: str, k: str = Query(None)):
     download_url = f"/{clean_code}/file?k={k}"
 
     player_html = ""
-    download_btn_text = "Скачать файл 🚀"
+    download_btn_text = "скачать файл"
 
-    # Если это ZIP-архив с каруселью картинок/видео и/или музыкой
     if ext == ".zip" and os.path.exists(file_path):
-        download_btn_text = "Скачать всё (ZIP) 🚀"
+        download_btn_text = "скачать всё зипкой"
         try:
             with zipfile.ZipFile(file_path, 'r') as zipf:
                 inner_files = [f for f in zipf.namelist() if not f.startswith("__MACOSX")]
@@ -251,27 +339,25 @@ async def preview_shared_file(shortcode: str, k: str = Query(None)):
                 visual_html = ""
                 audio_html = ""
 
-                # 1. Картинки и видео сверху
                 if visual_files:
                     items = []
                     for f in visual_files:
                         f_ext = os.path.splitext(f)[1].lower()
                         raw_url = f"/{clean_code}/raw/{f}?k={k}"
                         if f_ext in [".mp4", ".mov", ".webm"]:
-                            items.append(f'<video controls src="{raw_url}" style="width:100%; max-height:380px; border-radius:12px; margin-bottom:12px; object-fit:contain;"></video>')
+                            items.append(f'<video controls src="{raw_url}" style="width:100%; max-height:450px; border-radius:12px; margin-bottom:12px; object-fit:contain;"></video>')
                         else:
-                            items.append(f'<img src="{raw_url}" style="width:100%; max-height:420px; border-radius:12px; margin-bottom:12px; object-fit:contain;" />')
-                    visual_html = f'<div class="gallery-container" style="max-height:420px; overflow-y:auto; margin:15px 0; padding-right:5px;">{"".join(items)}</div>'
+                            items.append(f'<img src="{raw_url}" style="width:100%; max-height:450px; border-radius:12px; margin-bottom:12px; object-fit:contain;" />')
+                    visual_html = f'<div class="gallery-container" style="max-height:540px; overflow-y:auto; margin:15px 0; padding-right:5px;">{"".join(items)}</div>'
 
-                # 2. Музыка поста снизу
                 if audio_files:
                     audio_items = []
                     for f in audio_files:
                         raw_url = f"/{clean_code}/raw/{f}?k={k}"
                         audio_items.append(f'''
-                        <div style="background:#0f172a; padding:12px 16px; border-radius:14px; margin-top:12px; text-align:left; border: 1px solid #334155;">
-                            <div style="font-size:12px; font-weight:600; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-                                🎵 <span>Музыка из поста</span>
+                        <div style="background:#230f29; padding:12px 16px; border-radius:14px; margin-top:12px; text-align:left; border: 1px solid #334155;">
+                            <div style="font-size:12px; font-weight:600; color:#af94b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                                <span>музыка из поста</span>
                             </div>
                             <audio controls src="{raw_url}" style="width:100%; height:38px;"></audio>
                         </div>
@@ -287,95 +373,40 @@ async def preview_shared_file(shortcode: str, k: str = Query(None)):
             player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
 
     elif ext in [".mp4", ".mov", ".webm", ".mkv"]:
-        player_html = f'<video controls autoplay src="{download_url}" style="max-width:100%; max-height:360px; border-radius:12px; margin: 15px 0;"></video>'
+        player_html = f'<video controls autoplay src="{download_url}" style="max-width:100%; max-height:540px; border-radius:12px; margin: 15px 0;"></video>'
+
     elif ext in [".mp3", ".m4a", ".ogg", ".wav", ".flac"]:
-        player_html = f'<audio controls autoplay src="{download_url}" style="width:100%; margin: 25px 0;"></audio>'
+        thumb_file = os.path.join(config.SHARE_DIR, f"{clean_code}_thumb.jpg")
+        thumb_html = ""
+        if os.path.exists(thumb_file):
+            thumb_url = f"/{clean_code}/thumb?k={k}"
+            thumb_html = f'<img src="{thumb_url}" style="max-width:280px; max-height:280px; width:100%; border-radius:16px; margin-bottom:15px; object-fit:cover; box-shadow:0 10px 20px rgba(0,0,0,0.5);" /><br>'
+
+        player_html = f'''
+        <div style="background:#230f29; padding:16px; border-radius:14px; margin: 15px 0; text-align:center; border: 1px solid #334155;">
+            {thumb_html}
+            <audio controls autoplay src="{download_url}" style="width:100%; height:40px;"></audio>
+        </div>
+        '''
+        download_btn_text = "скачать трек"
+
     elif ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
-        player_html = f'<img src="{download_url}" style="max-width:100%; max-height:360px; border-radius:12px; object-fit:contain; margin: 15px 0;" />'
+        player_html = f'<img src="{download_url}" style="max-width:100%; max-height:720px; border-radius:12px; object-fit:contain; margin: 15px 0;" />'
     else:
         player_html = f'<div style="font-size:64px; margin:20px 0;">📦</div>'
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Предпросмотр — {filename}</title>
-        <style>
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                background: #0f172a;
-                color: #f8fafc;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                min-height: 100vh;
-                margin: 0;
-                padding: 20px;
-                box-sizing: border-box;
-            }}
-            .card {{
-                background: #1e293b;
-                padding: 24px;
-                border-radius: 20px;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-                max-width: 480px;
-                width: 100%;
-                text-align: center;
-            }}
-            .filename {{
-                font-size: 15px;
-                font-weight: 600;
-                word-break: break-all;
-                color: #cbd5e1;
-            }}
-            .gallery-container::-webkit-scrollbar {{
-                width: 6px;
-            }}
-            .gallery-container::-webkit-scrollbar-thumb {{
-                background: #475569;
-                border-radius: 4px;
-            }}
-            .btn-download {{
-                display: block;
-                width: 100%;
-                padding: 14px 0;
-                margin-top: 18px;
-                background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-                color: white;
-                text-decoration: none;
-                font-weight: bold;
-                border-radius: 12px;
-                font-size: 16px;
-                transition: transform 0.2s, opacity 0.2s;
-                box-sizing: border-box;
-            }}
-            .btn-download:hover {{
-                opacity: 0.9;
-                transform: translateY(-2px);
-            }}
-            .footer {{
-                margin-top: 16px;
-                font-size: 12px;
-                color: #64748b;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <div class="filename">📁 {filename}</div>
-            {player_html}
-            <a href="{download_url}" class="btn-download" download>{download_btn_text}</a>
-            <div class="footer">Ссылка действительна 1 час</div>
-        </div>
-    </body>
-    </html>
-    """
+    html_content = load_preview_html(
+        filename=filename,
+        player_html=player_html,
+        download_url=download_url,
+        download_btn_text=download_btn_text,
+        expires_at=data["expires_at"],
+        bot_username=config.BOT_USERNAME
+    )
     return HTMLResponse(content=html_content)
 
 # 📥 Прямое скачивание файла/архива
-@app.get("/{shortcode}/file")
+@app.api_route("/{shortcode}/file", methods=["GET", "HEAD"])
 async def download_shared_file(shortcode: str, k: str = Query(None)):
     if not k:
         raise HTTPException(status_code=403, detail="Доступ запрещен: отсутствует ключ доступа")

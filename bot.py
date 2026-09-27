@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher
 import config
 from utils import load_plus_ids
 from handlers import router
+from i18n import init_i18n
 
 logging.basicConfig(level=logging.INFO)
 
@@ -12,8 +13,9 @@ dp = Dispatcher()
 dp.include_router(router)
 
 async def main():
+    init_i18n()  # ✨ Распакует messages.xml при первом запуске бинарника
     load_plus_ids()
-    if config.BOT_TOKEN == None:
+    if config.BOT_TOKEN is None:
         logging.fatal(" No Bot Token was found. Please add it as BOT_TOKEN=[token] to the dotenv (.env) file.")
         return
     bot = Bot(token=config.BOT_TOKEN)
