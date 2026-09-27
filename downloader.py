@@ -281,7 +281,8 @@ async def execute_download_task(cache_id: str, mode: str, quality: int = 0, payl
         'force_ipv6': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv', 'tv_embedded', 'web_creator', 'android_vr', 'visionos', 'ios', 'mweb'],
+                'formats': ['duplicate'],
+                'player_client': ['web', 'web_music', 'mweb'],
             }
         },
     }
@@ -295,7 +296,7 @@ async def execute_download_task(cache_id: str, mode: str, quality: int = 0, payl
     if mode in ["audio_sp_yt", "audio_yt"]:
         target = (yt_url if mode == "audio_sp_yt" and yt_url else f"ytsearch1:{query} Audio") if mode == "audio_sp_yt" else url
         ydl_opts.update({
-            'format': 'ba/b',
+            'format': 'ba[protocol=sabr]/b[protocol=sabr]/ba/b',
             'format_sort': ['abr'],
             'writethumbnails': True,
             'writeinfojson': True,

@@ -13,6 +13,12 @@ async def extract_video_qualities(url: str) -> list[int]:
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
+        'format': 'ba[protocol=sabr]+bv[protocol=sabr]',
+        'extractor_args': {
+        'youtube': {
+            'formats': ['duplicate']
+        }
+        },
         'socket_timeout': 10,
         'js_runtimes': {'node': {}},
     }
@@ -91,6 +97,12 @@ async def search_youtube_info(artist: str | None, title: str | None, album: str 
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
+            'format': 'ba[protocol=sabr]+bv[protocol=sabr]',
+            'extractor_args': {
+            'youtube': {
+                'formats': ['duplicate']
+            }
+            },
             'socket_timeout': 10,
             'js_runtimes': {'node': {}},
         }
