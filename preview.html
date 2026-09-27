@@ -90,7 +90,7 @@
         <div id="media-title" class="filename">{{filename}}</div>
         {{player_html}}
         <div class="timer-badge">
-            ссылка доступна ещё <span id="countdown">считаем...</span>
+            ссылка <span id="countdown">доступна ещё...</span>
         </div>
         <a href="{{download_url}}" class="btn-download" download>{{download_btn_text}}</a>
         <div class="footer">
@@ -121,7 +121,7 @@
                 let timeStr = '';
                 if (hours > 0) timeStr += hours + 'ч ';
                 timeStr += String(minutes).padStart(2, '0') + 'м ' + String(seconds).padStart(2, '0') + 'с';
-                el.innerText = timeStr;
+                el.innerText = 'доступна ещё '+timeStr;
             }
             updateTimer();
             setInterval(updateTimer, 1000);
