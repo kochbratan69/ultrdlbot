@@ -117,7 +117,7 @@ jobs:
           uv run syncxml.py
           
           if [ "${{ matrix.app }}" = "worker" ]; then
-            pyinstaller --onefile --name "dl${{ matrix.app }}-${OS_NAME}${EXT}" --add-data "preview.html:." --collect-all gallery_dl ${{ matrix.app }}.py
+            pyinstaller --onefile --name "dl${{ matrix.app }}-${OS_NAME}${EXT}" --add-data "preview.html:." --collect-all gallery_dl --copy-metadata bgutil-ytdlp-pot-provider --collect-all bgutil-ytdlp-pot-provider --collect-all yt_dlp_plugins ${{ matrix.app }}.py
           else
             pyinstaller --onefile --name "dl${{ matrix.app }}-${OS_NAME}${EXT}" ${{ matrix.app }}.py
           fi
