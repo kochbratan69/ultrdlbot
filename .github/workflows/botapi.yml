@@ -1,0 +1,51 @@
+name: Build Telegram Bot API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake gperf libssl-dev zlib1g-dev
+
+      - name: Clone telegram-bot-api repo
+        run: |
+          git clone --recursive https://github.com/tdlib/telegram-bot-api.git telegram-bot-api-source
+
+      - name: Build telegram-bot-api
+        run: |
+          cd telegram-bot-api-source
+          mkdir build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --target telegram-bot-api -j$(nproc)
+          find . -name telegram-bot-api -type f -executable -exec cp {} ${{ github.workspace }}/telegram-bot-api \;
+
+      - name: Update 'botapi-latest' tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f botapi-latest
+          git push origin botapi-latest --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: botapi-latest
+          name: "Telegram Bot API (Latest)"
+          body: "Auto-Build `telegram-bot-api` for Ubuntu"
+          files: telegram-bot-api
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
